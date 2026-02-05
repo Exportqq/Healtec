@@ -83,16 +83,9 @@ class LoginRequest(BaseModel):
     password: str
 
 
-class AppointmentInfo(BaseModel):
-    doctor_id: int
-    doctor_name: str
-    specialty: str
-    rating: float
-
-
 class UserInfo(BaseModel):
+    id: int
     username: str
-    appointments: list[AppointmentInfo]
 
 
 class Doctor(BaseModel):
@@ -144,7 +137,7 @@ def login(data: LoginRequest):
         user = db.query(UserDB).filter(UserDB.username == data.username).first()
         if not user or not verify_password(data.password, user.password_hash):
             raise HTTPException(status_code=401, detail="Неверные данные")
-        return {"message": "Авторизация успешна", "username": user.username}
+        return {"message": "Авторизация успешна"}
     finally:
         db.close()
 
@@ -156,26 +149,7 @@ def me(x_username: str = Header(...)):
         user = db.query(UserDB).filter(UserDB.username == x_username).first()
         if not user:
             raise HTTPException(status_code=401, detail="Не авторизован")
-
-        appointments = (
-            db.query(AppointmentDB, DoctorDB)
-            .join(DoctorDB, AppointmentDB.doctor_id == DoctorDB.id)
-            .filter(AppointmentDB.username == x_username)
-            .all()
-        )
-
-        return {
-            "username": x_username,
-            "appointments": [
-                {
-                    "doctor_id": doctor.id,
-                    "doctor_name": doctor.name,
-                    "specialty": doctor.specialty,
-                    "rating": doctor.rating
-                }
-                for _, doctor in appointments
-            ]
-        }
+        return {"id": user.id, "username": user.username}
     finally:
         db.close()
 
@@ -261,22 +235,5 @@ def get_doctors():
     try:
         doctors = db.query(DoctorDB).all()
         return [{**d.__dict__, "diseases": d.diseases.split(",")} for d in doctors]
-    finally:
-        db.close()
-
-
-@app.post("/appointments")
-def book_appointment(username: str = Form(...), doctor_id: int = Form(...)):
-    db = SessionLocal()
-    try:
-        if not db.query(UserDB).filter(UserDB.username == username).first():
-            raise HTTPException(status_code=404, detail="Пользователь не найден")
-
-        if not db.query(DoctorDB).filter(DoctorDB.id == doctor_id).first():
-            raise HTTPException(status_code=404, detail="Доктор не найден")
-
-        db.add(AppointmentDB(username=username, doctor_id=doctor_id))
-        db.commit()
-        return {"message": "Вы записались к врачу"}
     finally:
         db.close()
