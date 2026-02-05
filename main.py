@@ -1,26 +1,15 @@
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Header
 from pydantic import BaseModel
-from sqlalchemy import (
-    create_engine, Column, Integer, String, Float, Text, ForeignKey
-)
+from sqlalchemy import create_engine, Column, Integer, String, Float, Text, ForeignKey
 from sqlalchemy.orm import declarative_base, sessionmaker
 from passlib.context import CryptContext
 import base64
 
-# ================= DATABASE =================
-
-DATABASE_URL = (
-    "postgresql+psycopg2://postgres:"
-    "yvtBoBbueGkabrUvJhufVqhVRDVbkptW"
-    "@switchyard.proxy.rlwy.net:28129/railway"
-)
-
+DATABASE_URL = "postgresql+psycopg2://postgres:yvtBoBbueGkabrUvJhufVqhVRDVbkptW@switchyard.proxy.rlwy.net:28129/railway"
 
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()
-
-# ================= SECURITY =================
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -31,8 +20,6 @@ def hash_password(password: str) -> str:
 
 def verify_password(password: str, hashed: str) -> bool:
     return pwd_context.verify(password, hashed)
-
-# ================= MODELS =================
 
 
 class UserDB(Base):
@@ -72,8 +59,6 @@ class AppointmentDB(Base):
     username = Column(String, nullable=False)
     doctor_id = Column(Integer, ForeignKey("doctors.id"))
 
-# ================= SCHEMAS =================
-
 
 class ClothingItem(BaseModel):
     id: int
@@ -98,6 +83,18 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class AppointmentInfo(BaseModel):
+    doctor_id: int
+    doctor_name: str
+    specialty: str
+    rating: float
+
+
+class UserInfo(BaseModel):
+    username: str
+    appointments: list[AppointmentInfo]
+
+
 class Doctor(BaseModel):
     id: int
     name: str
@@ -113,7 +110,6 @@ class Doctor(BaseModel):
     class Config:
         from_attributes = True
 
-# ================= APP =================
 
 app = FastAPI(title="Medical & Clothing API", version="1.0.0")
 
@@ -121,13 +117,6 @@ app = FastAPI(title="Medical & Clothing API", version="1.0.0")
 @app.on_event("startup")
 def startup():
     Base.metadata.create_all(bind=engine)
-
-
-@app.get("/")
-def root():
-    return {"message": "API работает"}
-
-# ================= AUTH =================
 
 
 @app.post("/auth/register")
@@ -140,11 +129,7 @@ def register(data: RegisterRequest):
         if db.query(UserDB).filter(UserDB.username == data.username).first():
             raise HTTPException(status_code=400, detail="Пользователь уже существует")
 
-        user = UserDB(
-            username=data.username,
-            password_hash=hash_password(data.password)
-        )
-
+        user = UserDB(username=data.username, password_hash=hash_password(data.password))
         db.add(user)
         db.commit()
         return {"message": "Регистрация успешна"}
@@ -163,7 +148,36 @@ def login(data: LoginRequest):
     finally:
         db.close()
 
-# ================= CLOTHES =================
+
+@app.get("/me", response_model=UserInfo)
+def me(x_username: str = Header(...)):
+    db = SessionLocal()
+    try:
+        user = db.query(UserDB).filter(UserDB.username == x_username).first()
+        if not user:
+            raise HTTPException(status_code=401, detail="Не авторизован")
+
+        appointments = (
+            db.query(AppointmentDB, DoctorDB)
+            .join(DoctorDB, AppointmentDB.doctor_id == DoctorDB.id)
+            .filter(AppointmentDB.username == x_username)
+            .all()
+        )
+
+        return {
+            "username": x_username,
+            "appointments": [
+                {
+                    "doctor_id": doctor.id,
+                    "doctor_name": doctor.name,
+                    "specialty": doctor.specialty,
+                    "rating": doctor.rating
+                }
+                for _, doctor in appointments
+            ]
+        }
+    finally:
+        db.close()
 
 
 @app.get("/clothes", response_model=list[ClothingItem])
@@ -194,23 +208,13 @@ async def create_clothing_item(
         if db.query(ClothingItemDB).filter(ClothingItemDB.id == id).first():
             raise HTTPException(status_code=400, detail="ID уже существует")
 
-        item = ClothingItemDB(
-            id=id,
-            name=name,
-            price=price,
-            type=type,
-            rating=rating,
-            photo=photo
-        )
-
+        item = ClothingItemDB(id=id, name=name, price=price, type=type, rating=rating, photo=photo)
         db.add(item)
         db.commit()
         db.refresh(item)
         return item
     finally:
         db.close()
-
-# ================= DOCTORS =================
 
 
 @app.post("/doctors", response_model=Doctor)
@@ -243,15 +247,10 @@ async def create_doctor(
             description=description,
             diseases=diseases
         )
-
         db.add(doctor)
         db.commit()
         db.refresh(doctor)
-
-        return {
-            **doctor.__dict__,
-            "diseases": doctor.diseases.split(",")
-        }
+        return {**doctor.__dict__, "diseases": doctor.diseases.split(",")}
     finally:
         db.close()
 
@@ -261,21 +260,13 @@ def get_doctors():
     db = SessionLocal()
     try:
         doctors = db.query(DoctorDB).all()
-        return [
-            {**d.__dict__, "diseases": d.diseases.split(",")}
-            for d in doctors
-        ]
+        return [{**d.__dict__, "diseases": d.diseases.split(",")} for d in doctors]
     finally:
         db.close()
 
-# ================= APPOINTMENTS =================
-
 
 @app.post("/appointments")
-def book_appointment(
-    username: str = Form(...),
-    doctor_id: int = Form(...)
-):
+def book_appointment(username: str = Form(...), doctor_id: int = Form(...)):
     db = SessionLocal()
     try:
         if not db.query(UserDB).filter(UserDB.username == username).first():
@@ -284,12 +275,7 @@ def book_appointment(
         if not db.query(DoctorDB).filter(DoctorDB.id == doctor_id).first():
             raise HTTPException(status_code=404, detail="Доктор не найден")
 
-        appointment = AppointmentDB(
-            username=username,
-            doctor_id=doctor_id
-        )
-
-        db.add(appointment)
+        db.add(AppointmentDB(username=username, doctor_id=doctor_id))
         db.commit()
         return {"message": "Вы записались к врачу"}
     finally:
