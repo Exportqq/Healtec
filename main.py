@@ -10,7 +10,7 @@ import os
 
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
-    "postgresql+psycopg2://postgres:yvtBoBbueGkabrUvJhufVqhVRDVbkptW.proxy.rlwy.net:46067/postgres"
+    "postgresql+psycopg2://postgres:yvtBoBbueGkabrUvJhufVqhVRDVbkptW@postgres-ernj.railway.internal:5432/railway"
 )
 
 engine = create_engine(DATABASE_URL)
