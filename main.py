@@ -237,3 +237,4 @@ def get_doctors():
         return [{**d.__dict__, "diseases": d.diseases.split(",")} for d in doctors]
     finally:
         db.close()
+# test
