@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Header, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, Header
 from pydantic import BaseModel
 from sqlalchemy import create_engine, Column, Integer, String, Float, Text, ForeignKey
 from sqlalchemy.orm import declarative_base, sessionmaker
@@ -142,61 +142,40 @@ def get_clothes():
         db.close()
 
 @app.post("/clothes", response_model=ClothingItem)
-async def create_clothing_item(
-    id: int = Form(...),
-    name: str = Form(...),
-    price: int = Form(...),
-    type: str = Form(...),
-    rating: str = Form(...),
-    photo_file: UploadFile = File(...)
-):
-    if photo_file.content_type != "image/png":
-        raise HTTPException(status_code=400, detail="Только PNG")
-    photo = base64.b64encode(await photo_file.read()).decode()
+async def create_clothing_item(item: ClothingItem):
     db = SessionLocal()
     try:
-        if db.query(ClothingItemDB).filter(ClothingItemDB.id == id).first():
+        if db.query(ClothingItemDB).filter(ClothingItemDB.id == item.id).first():
             raise HTTPException(status_code=400, detail="ID уже существует")
-        item = ClothingItemDB(id=id, name=name, price=price, type=type, rating=rating, photo=photo)
-        db.add(item)
+        db_item = ClothingItemDB(
+            id=item.id, name=item.name, price=item.price, type=item.type, rating=item.rating, photo=item.photo
+        )
+        db.add(db_item)
         db.commit()
-        db.refresh(item)
-        return item
+        db.refresh(db_item)
+        return db_item
     finally:
         db.close()
 
 @app.post("/doctors", response_model=Doctor)
-async def create_doctor(
-    name: str = Form(...),
-    specialty: str = Form(...),
-    rating: float = Form(...),
-    experience: str = Form(...),
-    patients_count: str = Form(...),
-    reviews_count: str = Form(...),
-    description: str = Form(...),
-    diseases: str = Form(...),
-    photo_file: UploadFile = File(...)
-):
-    if photo_file.content_type != "image/png":
-        raise HTTPException(status_code=400, detail="Только PNG")
-    photo = base64.b64encode(await photo_file.read()).decode()
+async def create_doctor(doctor: Doctor):
     db = SessionLocal()
     try:
-        doctor = DoctorDB(
-            name=name,
-            specialty=specialty,
-            rating=rating,
-            photo=photo,
-            experience=experience,
-            patients_count=patients_count,
-            reviews_count=reviews_count,
-            description=description,
-            diseases=diseases
+        db_doctor = DoctorDB(
+            name=doctor.name,
+            specialty=doctor.specialty,
+            rating=doctor.rating,
+            photo=doctor.photo,
+            experience=doctor.experience,
+            patients_count=doctor.patients_count,
+            reviews_count=doctor.reviews_count,
+            description=doctor.description,
+            diseases=",".join(doctor.diseases)
         )
-        db.add(doctor)
+        db.add(db_doctor)
         db.commit()
-        db.refresh(doctor)
-        return {**doctor.__dict__, "diseases": doctor.diseases.split(",")}
+        db.refresh(db_doctor)
+        return {**db_doctor.__dict__, "diseases": db_doctor.diseases.split(",")}
     finally:
         db.close()
 

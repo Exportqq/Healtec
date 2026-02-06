@@ -1,8 +1,6 @@
 fastapi
 uvicorn[standard]
 pydantic
-python-multipart
 sqlalchemy
 psycopg2-binary
 passlib[bcrypt]
-PyJWT==2.8.0
