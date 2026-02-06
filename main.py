@@ -1,18 +1,16 @@
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Header, UploadFile, File, Form
 from pydantic import BaseModel
 from sqlalchemy import create_engine, Column, Integer, String, Float, Text, ForeignKey
 from sqlalchemy.orm import declarative_base, sessionmaker
 from passlib.context import CryptContext
 import base64
-import jwt
-import datetime
 
 DATABASE_URL = "postgresql+psycopg2://postgres:yvtBoBbueGkabrUvJhufVqhVRDVbkptW@switchyard.proxy.rlwy.net:28129/railway"
-SECRET_KEY = "SUPER_SECRET_KEY"
 
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def hash_password(password: str) -> str:
@@ -20,10 +18,6 @@ def hash_password(password: str) -> str:
 
 def verify_password(password: str, hashed: str) -> bool:
     return pwd_context.verify(password, hashed)
-
-def create_token(username: str) -> str:
-    payload = {"sub": username, "exp": datetime.datetime.utcnow() + datetime.timedelta(days=7)}
-    return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
 
 class UserDB(Base):
     __tablename__ = "users"
@@ -59,16 +53,6 @@ class AppointmentDB(Base):
     username = Column(String, nullable=False)
     doctor_id = Column(Integer, ForeignKey("doctors.id"))
 
-class ClothingItem(BaseModel):
-    id: int
-    name: str
-    price: int
-    type: str
-    rating: str
-    photo: str
-    class Config:
-        from_attributes = True
-
 class RegisterRequest(BaseModel):
     username: str
     password: str
@@ -81,6 +65,16 @@ class LoginRequest(BaseModel):
 class UserInfo(BaseModel):
     id: int
     username: str
+
+class ClothingItem(BaseModel):
+    id: int
+    name: str
+    price: int
+    type: str
+    rating: str
+    photo: str
+    class Config:
+        from_attributes = True
 
 class Doctor(BaseModel):
     id: int
@@ -113,8 +107,7 @@ def register(data: RegisterRequest):
         user = UserDB(username=data.username, password_hash=hash_password(data.password))
         db.add(user)
         db.commit()
-        token = create_token(data.username)
-        return {"access_token": token}
+        return {"message": "Регистрация успешна"}
     finally:
         db.close()
 
@@ -125,24 +118,15 @@ def login(data: LoginRequest):
         user = db.query(UserDB).filter(UserDB.username == data.username).first()
         if not user or not verify_password(data.password, user.password_hash):
             raise HTTPException(status_code=401, detail="Неверные данные")
-        token = create_token(data.username)
-        return {"access_token": token}
+        return {"message": "Авторизация успешна"}
     finally:
         db.close()
 
 @app.get("/me", response_model=UserInfo)
-def me(authorization: str = Header(...)):
-    token = authorization.replace("Bearer ", "")
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-        username = payload.get("sub")
-        if not username:
-            raise HTTPException(status_code=401, detail="Не авторизован")
-    except:
-        raise HTTPException(status_code=401, detail="Не авторизован")
+def me(x_username: str = Header(...)):
     db = SessionLocal()
     try:
-        user = db.query(UserDB).filter(UserDB.username == username).first()
+        user = db.query(UserDB).filter(UserDB.username == x_username).first()
         if not user:
             raise HTTPException(status_code=401, detail="Не авторизован")
         return {"id": user.id, "username": user.username}
