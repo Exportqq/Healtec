@@ -4,13 +4,13 @@ from sqlalchemy import create_engine, Column, Integer, String, Float, Text, Fore
 from sqlalchemy.orm import declarative_base, sessionmaker
 from sqlalchemy.exc import IntegrityError
 from passlib.context import CryptContext
+from uuid import uuid4
 
 DATABASE_URL = "postgresql+psycopg2://postgres:yvtBoBbueGkabrUvJhufVqhVRDVbkptW@switchyard.proxy.rlwy.net:28129/railway"
 
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()
-
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def hash_password(password: str) -> str:
@@ -19,13 +19,11 @@ def hash_password(password: str) -> str:
 def verify_password(password: str, hashed: str) -> bool:
     return pwd_context.verify(password, hashed)
 
-
 class UserDB(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True)
     username = Column(String, unique=True, nullable=False)
     password_hash = Column(String, nullable=False)
-
 
 class ClothingItemDB(Base):
     __tablename__ = "clothes"
@@ -35,7 +33,6 @@ class ClothingItemDB(Base):
     type = Column(String, nullable=False)
     rating = Column(String, nullable=False)
     photo = Column(Text, nullable=False)
-
 
 class DoctorDB(Base):
     __tablename__ = "doctors"
@@ -50,29 +47,28 @@ class DoctorDB(Base):
     description = Column(Text, nullable=False)
     diseases = Column(Text, nullable=False)
 
-
 class AppointmentDB(Base):
     __tablename__ = "appointments"
     id = Column(Integer, primary_key=True)
     username = Column(String, nullable=False)
     doctor_id = Column(Integer, ForeignKey("doctors.id"))
 
-
 class RegisterRequest(BaseModel):
     username: str
     password: str
     repeat_password: str
 
-
 class LoginRequest(BaseModel):
     username: str
     password: str
 
+class AuthResponse(BaseModel):
+    token: str
+    username: str
 
 class UserInfo(BaseModel):
     id: int
     username: str
-
 
 class ClothingItem(BaseModel):
     id: int
@@ -84,7 +80,6 @@ class ClothingItem(BaseModel):
 
     class Config:
         from_attributes = True
-
 
 class Doctor(BaseModel):
     id: int | None = None
@@ -101,47 +96,41 @@ class Doctor(BaseModel):
     class Config:
         from_attributes = True
 
-
 app = FastAPI(title="Medical & Clothing API", version="1.0.0")
-
 
 @app.on_event("startup")
 def startup():
     Base.metadata.create_all(bind=engine)
 
-
-@app.post("/auth/register")
+@app.post("/auth/register", response_model=AuthResponse)
 def register(data: RegisterRequest):
     if data.password != data.repeat_password:
         raise HTTPException(status_code=400, detail="Пароли не совпадают")
-
     db = SessionLocal()
     try:
-        user = UserDB(
-            username=data.username,
-            password_hash=hash_password(data.password)
-        )
+        user = UserDB(username=data.username, password_hash=hash_password(data.password))
         db.add(user)
         db.commit()
-        return {"message": "Регистрация успешна"}
+        db.refresh(user)
+        token = str(uuid4())
+        return {"token": token, "username": user.username}
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=400, detail="Username уже существует")
     finally:
         db.close()
 
-
-@app.post("/auth/login")
+@app.post("/auth/login", response_model=AuthResponse)
 def login(data: LoginRequest):
     db = SessionLocal()
     try:
         user = db.query(UserDB).filter(UserDB.username == data.username).first()
         if not user or not verify_password(data.password, user.password_hash):
             raise HTTPException(status_code=401, detail="Неверные данные")
-        return {"message": "Авторизация успешна"}
+        token = str(uuid4())
+        return {"token": token, "username": user.username}
     finally:
         db.close()
-
 
 @app.get("/me", response_model=UserInfo)
 def me(x_username: str = Header(...)):
@@ -154,7 +143,6 @@ def me(x_username: str = Header(...)):
     finally:
         db.close()
 
-
 @app.get("/clothes", response_model=list[ClothingItem])
 def get_clothes():
     db = SessionLocal()
@@ -162,7 +150,6 @@ def get_clothes():
         return db.query(ClothingItemDB).all()
     finally:
         db.close()
-
 
 @app.post("/clothes", response_model=ClothingItem)
 def create_clothing_item(item: ClothingItem):
@@ -175,7 +162,6 @@ def create_clothing_item(item: ClothingItem):
         return db_item
     finally:
         db.close()
-
 
 @app.post("/doctors", response_model=Doctor)
 def create_doctor(doctor: Doctor):
@@ -195,22 +181,15 @@ def create_doctor(doctor: Doctor):
         db.add(db_doctor)
         db.commit()
         db.refresh(db_doctor)
-        return {
-            **db_doctor.__dict__,
-            "diseases": db_doctor.diseases.split(",")
-        }
+        return {**db_doctor.__dict__, "diseases": db_doctor.diseases.split(",")}
     finally:
         db.close()
-
 
 @app.get("/doctors", response_model=list[Doctor])
 def get_doctors():
     db = SessionLocal()
     try:
         doctors = db.query(DoctorDB).all()
-        return [
-            {**d.__dict__, "diseases": d.diseases.split(",")}
-            for d in doctors
-        ]
+        return [{**d.__dict__, "diseases": d.diseases.split(",")} for d in doctors]
     finally:
         db.close()
