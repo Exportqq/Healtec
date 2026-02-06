@@ -13,6 +13,8 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+tokens_map = {}
+
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
 
@@ -113,6 +115,7 @@ def register(data: RegisterRequest):
         db.commit()
         db.refresh(user)
         token = str(uuid4())
+        tokens_map[token] = user.username
         return {"token": token, "username": user.username}
     except IntegrityError:
         db.rollback()
@@ -128,15 +131,22 @@ def login(data: LoginRequest):
         if not user or not verify_password(data.password, user.password_hash):
             raise HTTPException(status_code=401, detail="Неверные данные")
         token = str(uuid4())
+        tokens_map[token] = user.username
         return {"token": token, "username": user.username}
     finally:
         db.close()
 
 @app.get("/me", response_model=UserInfo)
-def me(x_username: str = Header(...)):
+def me(authorization: str = Header(...)):
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Неверный заголовок Authorization")
+    token = authorization.split(" ")[1]
+    username = tokens_map.get(token)
+    if not username:
+        raise HTTPException(status_code=401, detail="Неверный токен")
     db = SessionLocal()
     try:
-        user = db.query(UserDB).filter(UserDB.username == x_username).first()
+        user = db.query(UserDB).filter(UserDB.username == username).first()
         if not user:
             raise HTTPException(status_code=401, detail="Не авторизован")
         return user
