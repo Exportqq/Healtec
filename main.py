@@ -179,25 +179,26 @@ def create_doctor(
     name: str = Form(...),
     specialty: str = Form(...),
     rating: float = Form(...),
-    photo: UploadFile = File(...),  # поле для загрузки PNG
+    photo: UploadFile = File(...),
     experience: str = Form(...),
     patients_count: str = Form(...),
     reviews_count: str = Form(...),
     description: str = Form(...),
     diseases: str = Form(...)
 ):
-    # сохраняем файл на диск
-    file_location = f"photos/{photo.filename}"
-    with open(file_location, "wb") as f:
-        f.write(photo.file.read())
-
-    db = SessionLocal()
+    import os
     try:
+        os.makedirs("photos", exist_ok=True)
+        file_location = f"photos/{photo.filename}"
+        with open(file_location, "wb") as f:
+            f.write(photo.file.read())
+
+        db = SessionLocal()
         db_doctor = DoctorDB(
             name=name,
             specialty=specialty,
             rating=rating,
-            photo=file_location,  # путь к файлу
+            photo=file_location,
             experience=experience,
             patients_count=patients_count,
             reviews_count=reviews_count,
@@ -217,8 +218,10 @@ def create_doctor(
             patients_count=patients_count,
             reviews_count=reviews_count,
             description=description,
-            diseases=diseases.split(",")
+            diseases=diseases.split(",") if diseases else []
         )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
 
