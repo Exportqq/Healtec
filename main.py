@@ -207,7 +207,7 @@ def get_clothes():
         db.close()
 
 @app.post("/clothes", response_model=ClothingItem)
-def create_clothing_item(item: ClothingItem, username: str = Depends(get_current_user)):
+def create_clothing_item(item: ClothingItem):
     db = SessionLocal()
     try:
         db_item = ClothingItemDB(**item.model_dump(exclude={"id"}))
@@ -252,8 +252,7 @@ def create_doctor(
     patients_count: str = Form(...),
     reviews_count: str = Form(...),
     description: str = Form(...),
-    diseases: str = Form(...),
-    username: str = Depends(get_current_user)
+    diseases: str = Form(...)
 ):
     db = SessionLocal()
     try:
@@ -296,20 +295,20 @@ def create_doctor(
 
 # --- ЭНДПОИНТ ЗАПИСИ К ВРАЧУ ---
 @app.post("/appointments/{doctor_id}")
-def create_appointment(doctor_id: int, username: str = Depends(get_current_user)):
+def create_appointment(doctor_id: int, username: str = Form("test_user")):
     db = SessionLocal()
     try:
         appointment = AppointmentDB(username=username, doctor_id=doctor_id)
         db.add(appointment)
         db.commit()
-        return {"status": "ok", "message": "Запись создана"}
+        return {"status": "ok", "message": "Запись создана", "id": appointment.id}
     finally:
         db.close()
 
 @app.get("/appointments")
-def get_my_appointments(username: str = Depends(get_current_user)):
+def get_all_appointments():
     db = SessionLocal()
     try:
-        return db.query(AppointmentDB).filter(AppointmentDB.username == username).all()
+        return db.query(AppointmentDB).all()
     finally:
         db.close()
