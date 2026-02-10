@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Header, Form
+from fastapi import FastAPI, HTTPException, Header, Form, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import create_engine, Column, Integer, String, Float, Text, ForeignKey
 from sqlalchemy.orm import declarative_base, sessionmaker
@@ -179,43 +179,49 @@ def create_doctor(
     name: str = Form(...),
     specialty: str = Form(...),
     rating: float = Form(...),
-    photo: str = Form(...),
+    photo: UploadFile = File(...),  # <--- теперь файл
     experience: str = Form(...),
     patients_count: str = Form(...),
     reviews_count: str = Form(...),
     description: str = Form(...),
-    diseases: str = Form(...),  # вводишь через запятую
+    diseases: str = Form(...)
 ):
+    # Сохраняем файл на диск (например)
+    file_location = f"photos/{photo.filename}"
+    with open(file_location, "wb") as f:
+        f.write(photo.file.read())
+
     db = SessionLocal()
     try:
         db_doctor = DoctorDB(
             name=name,
             specialty=specialty,
             rating=rating,
-            photo=photo,
+            photo=file_location,  # путь к файлу в БД
             experience=experience,
             patients_count=patients_count,
             reviews_count=reviews_count,
             description=description,
-            diseases=diseases  # сохраняем как строку
+            diseases=diseases
         )
         db.add(db_doctor)
         db.commit()
         db.refresh(db_doctor)
-        # Возвращаем модель для Swagger
+
         return Doctor(
             name=name,
             specialty=specialty,
             rating=rating,
-            photo=photo,
+            photo=file_location,  # путь к файлу
             experience=experience,
             patients_count=patients_count,
             reviews_count=reviews_count,
             description=description,
-            diseases=diseases.split(",")  # можно вернуть как список
+            diseases=diseases.split(",")
         )
     finally:
         db.close()
+
 
 
 
