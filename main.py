@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Header, Form, File, UploadFile, Request
+from fastapi import FastAPI, HTTPException, Header, Form, File, UploadFile, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import create_engine, Column, Integer, String, Float, Text, ForeignKey
@@ -17,7 +17,7 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-app = FastAPI(title="Medical & Clothing API", version="1.0.0")
+app = FastAPI(title="Healtec API", version="1.0.0")
 
 # Глобальный CORS для фронтенда
 app.add_middleware(
