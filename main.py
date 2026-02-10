@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Header, Form, File, UploadFile, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from sqlalchemy import create_engine, Column, Integer, String, Float, Text, ForeignKey
+from sqlalchemy import create_engine, Column, Integer, String, Float, Text, ForeignKey, delete
 from sqlalchemy.orm import declarative_base, sessionmaker
 from sqlalchemy.exc import IntegrityError
 from passlib.context import CryptContext
@@ -76,7 +76,7 @@ class AppointmentDB(Base):
     __tablename__ = "appointments"
     id = Column(Integer, primary_key=True, autoincrement=True)
     username = Column(String, nullable=False)
-    doctor_id = Column(Integer, ForeignKey("doctors.id"))
+    doctor_id = Column(Integer, ForeignKey("doctors.id", ondelete="CASCADE"))
 
 # --- PYDANTIC МОДЕЛИ ---
 class RegisterRequest(BaseModel):
@@ -287,6 +287,23 @@ def create_doctor(
             description=db_doctor.description,
             diseases=diseases.split(",")
         )
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+@app.delete("/doctors/{doctor_id}")
+def delete_doctor(doctor_id: int):
+    db = SessionLocal()
+    try:
+        doctor = db.get(DoctorDB, doctor_id)
+        if not doctor:
+            raise HTTPException(status_code=404, detail="Доктор с таким id не найден")
+        
+        db.delete(doctor)
+        db.commit()
+        return {"status": "ok", "message": f"Доктор {doctor.name} успешно удален"}
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
