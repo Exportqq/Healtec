@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Header, Form, UploadFile
+from fastapi import FastAPI, HTTPException, Header, Form, File, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import create_engine, Column, Integer, String, Float, Text, ForeignKey
 from sqlalchemy.orm import declarative_base, sessionmaker
@@ -179,14 +179,14 @@ def create_doctor(
     name: str = Form(...),
     specialty: str = Form(...),
     rating: float = Form(...),
-    photo: UploadFile = File(...),  # <--- теперь файл
+    photo: UploadFile = File(...),  # поле для загрузки PNG
     experience: str = Form(...),
     patients_count: str = Form(...),
     reviews_count: str = Form(...),
     description: str = Form(...),
     diseases: str = Form(...)
 ):
-    # Сохраняем файл на диск (например)
+    # сохраняем файл на диск
     file_location = f"photos/{photo.filename}"
     with open(file_location, "wb") as f:
         f.write(photo.file.read())
@@ -197,7 +197,7 @@ def create_doctor(
             name=name,
             specialty=specialty,
             rating=rating,
-            photo=file_location,  # путь к файлу в БД
+            photo=file_location,  # путь к файлу
             experience=experience,
             patients_count=patients_count,
             reviews_count=reviews_count,
@@ -212,7 +212,7 @@ def create_doctor(
             name=name,
             specialty=specialty,
             rating=rating,
-            photo=file_location,  # путь к файлу
+            photo=file_location,
             experience=experience,
             patients_count=patients_count,
             reviews_count=reviews_count,
@@ -221,6 +221,7 @@ def create_doctor(
         )
     finally:
         db.close()
+
 
 
 
