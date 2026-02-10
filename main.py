@@ -186,14 +186,15 @@ def create_doctor(doctor: Doctor):
             patients_count=doctor.patients_count,
             reviews_count=doctor.reviews_count,
             description=doctor.description,
-            diseases=",".join(doctor.diseases)
+            diseases=doctor.diseases 
         )
         db.add(db_doctor)
         db.commit()
         db.refresh(db_doctor)
-        return {**db_doctor.__dict__, "diseases": db_doctor.diseases.split(",")}
+        return doctor
     finally:
         db.close()
+
 
 @app.get("/doctors", response_model=list[Doctor])
 def get_doctors():
