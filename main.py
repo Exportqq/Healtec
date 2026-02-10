@@ -1,10 +1,11 @@
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Header, Form
 from pydantic import BaseModel
 from sqlalchemy import create_engine, Column, Integer, String, Float, Text, ForeignKey
 from sqlalchemy.orm import declarative_base, sessionmaker
 from sqlalchemy.exc import IntegrityError
 from passlib.context import CryptContext
 from uuid import uuid4
+
 
 DATABASE_URL = "postgresql+psycopg2://postgres:yvtBoBbueGkabrUvJhufVqhVRDVbkptW@switchyard.proxy.rlwy.net:28129/railway"
 
@@ -174,26 +175,48 @@ def create_clothing_item(item: ClothingItem):
         db.close()
 
 @app.post("/doctors", response_model=Doctor)
-def create_doctor(doctor: Doctor):
+def create_doctor(
+    name: str = Form(...),
+    specialty: str = Form(...),
+    rating: float = Form(...),
+    photo: str = Form(...),
+    experience: str = Form(...),
+    patients_count: str = Form(...),
+    reviews_count: str = Form(...),
+    description: str = Form(...),
+    diseases: str = Form(...),  # вводишь через запятую
+):
     db = SessionLocal()
     try:
         db_doctor = DoctorDB(
-            name=doctor.name,
-            specialty=doctor.specialty,
-            rating=doctor.rating,
-            photo=doctor.photo,
-            experience=doctor.experience,
-            patients_count=doctor.patients_count,
-            reviews_count=doctor.reviews_count,
-            description=doctor.description,
-            diseases=doctor.diseases 
+            name=name,
+            specialty=specialty,
+            rating=rating,
+            photo=photo,
+            experience=experience,
+            patients_count=patients_count,
+            reviews_count=reviews_count,
+            description=description,
+            diseases=diseases  # сохраняем как строку
         )
         db.add(db_doctor)
         db.commit()
         db.refresh(db_doctor)
-        return doctor
+        # Возвращаем модель для Swagger
+        return Doctor(
+            name=name,
+            specialty=specialty,
+            rating=rating,
+            photo=photo,
+            experience=experience,
+            patients_count=patients_count,
+            reviews_count=reviews_count,
+            description=description,
+            diseases=diseases.split(",")  # можно вернуть как список
+        )
     finally:
         db.close()
+
 
 
 @app.get("/doctors", response_model=list[Doctor])
