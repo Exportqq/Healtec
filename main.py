@@ -9,27 +9,32 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import create_engine, Column, Integer, String, Float, Text, ForeignKey
 from sqlalchemy.orm import declarative_base, sessionmaker
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from passlib.context import CryptContext
 
-# --- ПОДКЛЮЧЕНИЕ К БД (Render internal PostgreSQL) ---
+# --- ПОДКЛЮЧЕНИЕ К БД (из ENV) ---
 DB_USER = os.getenv("DB_USER", "postgres")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "password")
 DB_NAME = os.getenv("DB_NAME", "mydb")
-DB_HOST = os.getenv("DB_HOST", "internal-db-name.render.internal")
+DB_HOST = os.getenv("DB_HOST", "your-db.internal.render.com")  # <- Вставьте правильный хост Render
 DB_PORT = os.getenv("DB_PORT", "5432")
 
 DATABASE_URL = f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
+# Создаём движок и сессию
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# --- Lifespan вместо @app.on_event("startup") ---
+# --- Lifespan для создания таблиц при старте ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    Base.metadata.create_all(bind=engine)
+    try:
+        Base.metadata.create_all(bind=engine)
+        print("✅ Database tables created successfully")
+    except OperationalError as e:
+        print("❌ Could not connect to database:", e)
     yield
 
 app = FastAPI(title="Healtec API", version="1.0.0", lifespan=lifespan)
@@ -49,7 +54,7 @@ async def log_all_errors(request: Request, call_next):
     try:
         return await call_next(request)
     except Exception as e:
-        print("❌ ОШИБКА СЕРВЕРА:")
+        print("❌ SERVER ERROR:")
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
