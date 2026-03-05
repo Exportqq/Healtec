@@ -1,45 +1,36 @@
 import os
 import base64
-import traceback
 from uuid import uuid4
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Header, Form, File, UploadFile, Request, Depends
+from fastapi import FastAPI, HTTPException, Header, Form, File, UploadFile, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import create_engine, Column, Integer, String, Float, Text, ForeignKey
 from sqlalchemy.orm import declarative_base, sessionmaker
-from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.exc import IntegrityError
 from passlib.context import CryptContext
 
-# --- ПОДКЛЮЧЕНИЕ К БД (из ENV) ---
 DB_USER = os.getenv("DB_USER", "postgres")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "password")
 DB_NAME = os.getenv("DB_NAME", "mydb")
-DB_HOST = os.getenv("DB_HOST", "your-db.internal.render.com")  # <- Вставьте правильный хост Render
+DB_HOST = os.getenv("DB_HOST", "localhost")
 DB_PORT = os.getenv("DB_PORT", "5432")
 
 DATABASE_URL = f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
-# Создаём движок и сессию
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# --- Lifespan для создания таблиц при старте ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    try:
-        Base.metadata.create_all(bind=engine)
-        print("✅ Database tables created successfully")
-    except OperationalError as e:
-        print("❌ Could not connect to database:", e)
+    Base.metadata.create_all(bind=engine)
     yield
 
-app = FastAPI(title="Healtec API", version="1.0.0", lifespan=lifespan)
+app = FastAPI(lifespan=lifespan)
 
-# --- CORS ---
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -48,17 +39,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Middleware логирования ошибок ---
-@app.middleware("http")
-async def log_all_errors(request: Request, call_next):
-    try:
-        return await call_next(request)
-    except Exception as e:
-        print("❌ SERVER ERROR:")
-        print(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=str(e))
-
-# --- МОДЕЛИ БД ---
 class UserDB(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True)
@@ -98,7 +78,6 @@ class AppointmentDB(Base):
     username = Column(String, nullable=False)
     doctor_id = Column(Integer, ForeignKey("doctors.id", ondelete="CASCADE"))
 
-# --- Pydantic модели ---
 class RegisterRequest(BaseModel):
     username: str
     password: str
@@ -139,7 +118,6 @@ class Doctor(BaseModel):
     diseases: list[str]
     model_config = ConfigDict(from_attributes=True)
 
-# --- ФУНКЦИИ ---
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
 
@@ -148,22 +126,21 @@ def verify_password(password: str, hashed: str) -> bool:
 
 def get_current_user(authorization: str = Header(...)) -> str:
     if not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Неверный заголовок Authorization")
+        raise HTTPException(status_code=401)
     token = authorization.split(" ")[1]
     db = SessionLocal()
     try:
         token_db = db.query(TokenDB).filter(TokenDB.token == token).first()
         if not token_db:
-            raise HTTPException(status_code=401, detail="Неверный токен")
+            raise HTTPException(status_code=401)
         return token_db.username
     finally:
         db.close()
 
-# --- АВТОРИЗАЦИЯ ---
 @app.post("/auth/register", response_model=AuthResponse)
 def register(data: RegisterRequest):
     if data.password != data.repeat_password:
-        raise HTTPException(status_code=400, detail="Пароли не совпадают")
+        raise HTTPException(status_code=400)
     db = SessionLocal()
     try:
         user = UserDB(username=data.username, password_hash=hash_password(data.password))
@@ -176,7 +153,7 @@ def register(data: RegisterRequest):
         return {"token": token, "username": user.username}
     except IntegrityError:
         db.rollback()
-        raise HTTPException(status_code=400, detail="Username уже существует")
+        raise HTTPException(status_code=400)
     finally:
         db.close()
 
@@ -186,7 +163,7 @@ def login(data: LoginRequest):
     try:
         user = db.query(UserDB).filter(UserDB.username == data.username).first()
         if not user or not verify_password(data.password, user.password_hash):
-            raise HTTPException(status_code=401, detail="Неверные данные")
+            raise HTTPException(status_code=401)
         token = str(uuid4())
         db.add(TokenDB(token=token, username=user.username))
         db.commit()
@@ -198,12 +175,10 @@ def login(data: LoginRequest):
 def me(username: str = Depends(get_current_user)):
     db = SessionLocal()
     try:
-        user = db.query(UserDB).filter(UserDB.username == username).first()
-        return user
+        return db.query(UserDB).filter(UserDB.username == username).first()
     finally:
         db.close()
 
-# --- ОДЕЖДА ---
 @app.get("/clothes", response_model=list[ClothingItem])
 def get_clothes():
     db = SessionLocal()
@@ -224,7 +199,6 @@ def create_clothing_item(item: ClothingItem):
     finally:
         db.close()
 
-# --- ДОКТОРА ---
 @app.get("/doctors", response_model=list[Doctor])
 def get_doctors():
     db = SessionLocal()
@@ -242,7 +216,7 @@ def get_doctors():
                 patients_count=d.patients_count,
                 reviews_count=d.reviews_count,
                 description=d.description,
-                diseases=d.diseases.split(",")
+                diseases=d.diseases.split(",") if d.diseases else []
             ))
         return result
     finally:
@@ -288,11 +262,8 @@ def create_doctor(
             patients_count=db_doctor.patients_count,
             reviews_count=db_doctor.reviews_count,
             description=db_doctor.description,
-            diseases=diseases.split(",")
+            diseases=diseases.split(",") if diseases else []
         )
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
 
@@ -302,14 +273,13 @@ def delete_doctor(doctor_id: int):
     try:
         doctor = db.get(DoctorDB, doctor_id)
         if not doctor:
-            raise HTTPException(status_code=404, detail="Доктор с таким id не найден")
+            raise HTTPException(status_code=404)
         db.delete(doctor)
         db.commit()
-        return {"status": "ok", "message": f"Доктор {doctor.name} успешно удален"}
+        return {"status": "ok"}
     finally:
         db.close()
 
-# --- ЗАПИСИ К ВРАЧУ ---
 @app.post("/appointments/{doctor_id}")
 def create_appointment(doctor_id: int, username: str = Form("test_user")):
     db = SessionLocal()
@@ -317,7 +287,7 @@ def create_appointment(doctor_id: int, username: str = Form("test_user")):
         appointment = AppointmentDB(username=username, doctor_id=doctor_id)
         db.add(appointment)
         db.commit()
-        return {"status": "ok", "message": "Запись создана", "id": appointment.id}
+        return {"id": appointment.id}
     finally:
         db.close()
 
